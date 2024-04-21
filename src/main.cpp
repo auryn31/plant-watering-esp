@@ -2,9 +2,24 @@
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
-#include <wifi/wifi_settings.h>
+#include <config/config.h>
 
 #define AOUT_PIN 34
+#define uS_TO_S_FACTOR \
+  1000000 /* Conversion factor for micro seconds to seconds */
+// sleep for 10 minutes
+#define TIME_TO_SLEEP 600
+
+// constants
+const int dryValue = 3100;
+const int wetValue = 1200;
+const String plantUrl =
+    String(("https://plant-watering-two.vercel.app/api/id/" +
+            std::string(userId) + "/plant/" + std::string(plant1Id))
+               .c_str());
+
+void sendData(const String& url, int humidity, int lastWateringInMl);
+void readDataAndSentToServer();
 
 void setup() {
   Serial.begin(9600);
@@ -20,27 +35,26 @@ void setup() {
   Serial.println("\nConnected to the WiFi network");
   Serial.print("Local ESP32 IP: ");
   Serial.println(WiFi.localIP());
+
+  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
+  Serial.println("Setup ESP32 to sleep for every " + String(TIME_TO_SLEEP) +
+                 " Seconds");
+  readDataAndSentToServer();
+  Serial.println("Going to sleep now");
+  delay(1000);
+  Serial.flush();
+  esp_deep_sleep_start();
 }
 
-const int dryValue = 3100;
-const int wetValue = 1200;
-const String plantUrl =
-    "https://plant-watering-two.vercel.app/api/id/"
-    "6ffa8fc2-3dec-4590-a593-f770c6e39d80/plant/"
-    "d914cdb9-641c-4259-a532-70520055d2ef";
+void loop() {}
 
-void sendData(const String& url, int humidity, int lastWateringInMl);
-
-void loop() {
+void readDataAndSentToServer() {
   int sensorValue = analogRead(AOUT_PIN);
   Serial.println(sensorValue);
   Serial.println("in percent");
   int humidity = map(sensorValue, dryValue, wetValue, 0, 100);
   Serial.println(humidity);
   sendData(plantUrl, humidity, 0);  // Send the data
-
-  // wait minute 
-  delay(60000);
 }
 
 void sendData(const String& url, int humidity, int lastWateringInMl) {
