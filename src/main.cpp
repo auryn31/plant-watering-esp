@@ -3,29 +3,40 @@
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <config/config.h>
+#include <plant/plant.h>
 
 #define AOUT_PIN 34
 #define uS_TO_S_FACTOR \
   1000000 /* Conversion factor for micro seconds to seconds */
 // sleep for 10 minutes
 #define TIME_TO_SLEEP 600
+// #define TIME_TO_SLEEP 5
 
 // constants
 const int dryValue = 3100;
 const int wetValue = 1200;
-const String plantUrl =
-    String(("https://plant-watering-two.vercel.app/api/id/" +
-            std::string(userId) + "/plant/" + std::string(plant1Id))
-               .c_str());
 
 void sendData(const String& url, int humidity, int lastWateringInMl);
-void readDataAndSentToServer();
+void readDataAndSentToServer(String url);
+int readHumidity(int plantPin);
+String getPlantUrl(char* plantId);
+
+String getPlantUrl(const char* plantId) {
+  return String(("https://plant-watering-two.vercel.app/api/id/" +
+                 std::string(userId) + "/plant/" + std::string(plantId))
+                    .c_str());
+}
 
 void setup() {
   Serial.begin(9600);
-  WiFi.mode(WIFI_STA);  // Optional
+  WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   Serial.println("\nConnecting");
+  // set pump to off to low
+  for (PlantConfig plantConfig : plantConfigs) {
+    pinMode(plantConfig.pumpPin, OUTPUT);
+    digitalWrite(plantConfig.pumpPin, LOW);
+  }
 
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
@@ -39,7 +50,29 @@ void setup() {
   esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
   Serial.println("Setup ESP32 to sleep for every " + String(TIME_TO_SLEEP) +
                  " Seconds");
-  readDataAndSentToServer();
+  for (PlantConfig plantConfig : plantConfigs) {
+    try {
+      const String plantUrl = getPlantUrl(plantConfig.plantId);
+      const Plant plant = Plant::fetchPlant(plantUrl);
+      const int humidity = readHumidity(plantConfig.pin);
+      int wateringAmount = 0;
+      // TODO: check if last pumping is at least 30 min ago
+      if (plant.desired_humidity > humidity && plant.water_today < plant.max_ml_per_day) {
+        wateringAmount = plant.ml_per_watering;
+        // first send data to server to prevent watering without logging
+        Plant::sendData(plantUrl, humidity, wateringAmount);
+        Serial.println("Watering start...");
+        digitalWrite(plantConfig.pumpPin, HIGH);
+        // TODO: to be calulated how many seconds are how many ml
+        delay(1000);
+        digitalWrite(plantConfig.pumpPin, LOW);
+        Serial.println("...watering done");
+      }
+    } catch (const char* msg) {
+      Serial.println(msg);
+      continue;
+    }
+  }
   Serial.println("Going to sleep now");
   delay(1000);
   Serial.flush();
@@ -48,48 +81,9 @@ void setup() {
 
 void loop() {}
 
-void readDataAndSentToServer() {
+int readHumidity(int plantPin) {
   int sensorValue = analogRead(AOUT_PIN);
-  Serial.println(sensorValue);
-  Serial.println("in percent");
   int humidity = map(sensorValue, dryValue, wetValue, 0, 100);
-  Serial.println(humidity);
-  sendData(plantUrl, humidity, 0);  // Send the data
-}
-
-void sendData(const String& url, int humidity, int lastWateringInMl) {
-  if (WiFi.status() ==
-      WL_CONNECTED) {  // Check if we're still connected to the WiFi
-
-    HTTPClient http;  // Declare an object of class HTTPClient
-    http.begin(url);  // Specify request destination
-    http.addHeader("Content-Type",
-                   "application/json");  // Specify content-type header
-
-    // Create the JSON document
-    StaticJsonDocument<200> jsonDoc;  // Create an instance of JsonDocument
-
-    jsonDoc["humidity"] = humidity;
-    jsonDoc["last_watering_in_ml"] = lastWateringInMl;
-
-    // Serialize JSON document into a string
-    String jsonObject;
-    serializeJson(jsonDoc, jsonObject);
-
-    // Send the request
-    int httpResponseCode = http.PUT(jsonObject);  // Make a POST request
-
-    if (httpResponseCode > 0) {            // Check the returning code
-      String response = http.getString();  // Get the response
-      Serial.println(httpResponseCode);    // Print the response code
-      Serial.println(response);            // Print the response return payload
-    } else {
-      Serial.print("Error on sending PUT: ");
-      Serial.println(httpResponseCode);
-    }
-
-    http.end();  // Close connection
-  } else {
-    Serial.println("Error in WiFi connection");
-  }
+  Serial.println("Humidity for pin " + String(plantPin) + " is " + humidity);
+  return humidity;
 }
