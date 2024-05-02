@@ -1,5 +1,5 @@
 #include "pump.h"
-
+#include "../log/logger.h"
 #include "../config/config.h"
 
 void Pump::pumpMl(int pumpPin, int ml) {
@@ -7,7 +7,7 @@ void Pump::pumpMl(int pumpPin, int ml) {
 
   int timeToPumpInS =
       ml / PumpConfig::mlPerSecond + PumpConfig::timeTilWaterInS;
-  Serial.println("Pumping " + String(ml) + " ml for " + String(timeToPumpInS) +
+  Log::debug("Pumping " + String(ml) + " ml for " + String(timeToPumpInS) +
                  " s");
   int timeToPumpInMs = timeToPumpInS * 1000;
   int timePerLoop = 20;

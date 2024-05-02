@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include "../log/logger.h"
 
 class Plant {
  public:
@@ -17,13 +18,13 @@ class Plant {
   static void sendData(const String& url, int humidity, int lastWateringInMl);
 
   void printDetails() {
-    Serial.println("Plant Details:");
-    Serial.println("ID: " + id);
-    Serial.println("Token ID: " + token_id);
-    Serial.println("Name: " + name);
-    Serial.println("ML per Watering: " + String(ml_per_watering));
-    Serial.println("Max ML per Day: " + String(max_ml_per_day));
-    Serial.println("Desired Humidity: " + String(desired_humidity));
-    Serial.println("Created At: " + created_at);
+    Log::debug("Plant Details:");
+    Log::debug("ID: " + id);
+    Log::debug("Token ID: " + token_id);
+    Log::debug("Name: " + name);
+    Log::debug("ML per Watering: " + String(ml_per_watering));
+    Log::debug("Max ML per Day: " + String(max_ml_per_day));
+    Log::debug("Desired Humidity: " + String(desired_humidity));
+    Log::debug("Created At: " + created_at);
   }
 };
