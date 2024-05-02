@@ -1,13 +1,16 @@
 #include "plant.h"
-#include "../log/logger.h"
+
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
-#define MAX_RETRIES 5
+
+#include "../log/logger.h"
+#define MAX_RETRIES 3
 
 Plant Plant::fetchPlant(String plantUrl) {
   int retries = 0;
   while (retries < MAX_RETRIES) {
+    retries++;
     try {
       HTTPClient http;
       http.begin(plantUrl);  // URL to the JSON data
@@ -17,7 +20,7 @@ Plant Plant::fetchPlant(String plantUrl) {
         String payload = http.getString();
         Log::debug(payload);
 
-        StaticJsonDocument<512> doc;
+        JsonDocument doc;
         deserializeJson(doc, payload);
         JsonObject obj = doc["plant"];
 
@@ -38,15 +41,15 @@ Plant Plant::fetchPlant(String plantUrl) {
         return plant;
       } else {
         Log::debug("Failed to fetch data");
+        throw "Failed to fetch data";
       }
       http.end();
-      throw "Failed to fetch data";
     } catch (const char* msg) {
-      Log::debug(msg);
-      retries++;
-      delay(1000);
+      Log::debug("Failed to fetch data. Retrying...");
+      delay(500);
     }
-  }
+  };
+  throw "Failed to fetch data";
 };
 
 void Plant::sendData(const String& url, int humidity, int lastWateringInMl) {
@@ -54,13 +57,15 @@ void Plant::sendData(const String& url, int humidity, int lastWateringInMl) {
       WL_CONNECTED) {  // Check if we're still connected to the WiFi
     int retries = 0;
     while (retries < MAX_RETRIES) {
+      retries++;
+
       HTTPClient http;  // Declare an object of class HTTPClient
       http.begin(url);  // Specify request destination
       http.addHeader("Content-Type",
                      "application/json");  // Specify content-type header
 
       // Create the JSON document
-      StaticJsonDocument<200> jsonDoc;  // Create an instance of JsonDocument
+      JsonDocument jsonDoc;
 
       jsonDoc["humidity"] = humidity;
       jsonDoc["last_watering_in_ml"] = lastWateringInMl;
@@ -70,20 +75,19 @@ void Plant::sendData(const String& url, int humidity, int lastWateringInMl) {
       serializeJson(jsonDoc, jsonObject);
 
       // Send the request
-      int httpResponseCode = http.PUT(jsonObject);  // Make a POST request
+      int httpResponseCode = http.PUT(jsonObject);
 
-      if (httpResponseCode > 0) {            // Check the returning code
+      if (httpResponseCode > 0) {
         String response = http.getString();  // Get the response
         Log::debug("Response: " + String(httpResponseCode));
-        Log::debug(response);          // Print the response return payload
-        http.end();                        // Close connection
+        Log::debug(response);
+        http.end();
         return;
       } else {
         Log::debug("Error on sending PUT: " + String(httpResponseCode));
+        http.end();
       }
-
-      http.end();  // Close connection
-      retries++;
+      delay(500);
     }
 
   } else {

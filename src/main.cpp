@@ -5,14 +5,14 @@
 #include <config/config.h>
 #include <plant/plant.h>
 
+#include "esp_wifi.h"
 #include "log/logger.h"
 #include "pump/pump.h"
-#include "esp_wifi.h"
 
 #define uS_TO_S_FACTOR \
   1000000ULL /* Conversion factor for micro seconds to seconds */
 // sleep for 10 minutes
-#define TIME_TO_SLEEP 300
+#define TIME_TO_SLEEP 60 
 // #define TIME_TO_SLEEP 5
 #define MAX_WAIT_FOR_WIFI 20000
 
@@ -46,8 +46,10 @@ void calibrateSensor(int sensorPin) {
 
 void setup() {
   if (DEBUG_ENABLED) {
+    delay(1000);
     Serial.begin(9600);
     delay(100);
+    // Log::initDisplay();
     while (!Serial);
   }
 
@@ -59,9 +61,13 @@ void setup() {
     }
   } else {
     // normal mode
+    esp_wifi_start();
+    esp_wifi_connect();
+    WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
     WiFi.begin(Config::ssid, Config::password);
-    Log::debug("\nConnecting");
+    WiFi.reconnect();
+    Log::debug("Connecting");
     // set pump to off to low
     for (PlantConfig plantConfig : plantConfigs) {
       turnOffPump(plantConfig.pumpPin);
@@ -70,12 +76,12 @@ void setup() {
     unsigned long start = millis();
     // && (millis() - start) < MAX_WAIT_FOR_WIFI
     while (WiFi.status() != WL_CONNECTED) {
-      Log::debug(".");
+      Log::debug("Wifi not connected yet... \n" + millis());
       delay(100);
     }
 
-    Log::debug("\nConnected to the WiFi network");
-    Log::debug("Local ESP32 IP: " + WiFi.localIP().toString());
+    Log::debug("Connected to the WiFi network");
+    Log::debug("Local IP: \n" + WiFi.localIP().toString());
 
     for (PlantConfig plantConfig : plantConfigs) {
       // delay to not overwhelm server
@@ -104,9 +110,10 @@ void gotoSleep() {
   if (DEBUG_ENABLED) {
     Serial.flush();
   }
-  esp_wifi_stop();
-  // WiFi.disconnect();
-  delay(100);
+  esp_wifi_disconnect();
+  WiFi.disconnect();
+  // esp_wifi_stop();
+  delay(500);
   digitalWrite(LED_BUILTIN, LOW);
   esp_deep_sleep_start();
 }
