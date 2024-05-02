@@ -18,7 +18,7 @@ class Log {
     if (DEBUG_ENABLED) {
       Serial.println(message);
       // on external display connected to 8 and 9 pin
-      printMessage(message);
+      // printMessage(message);
     }
   }
 };

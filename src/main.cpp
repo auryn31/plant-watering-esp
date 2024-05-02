@@ -12,7 +12,7 @@
 #define uS_TO_S_FACTOR \
   1000000ULL /* Conversion factor for micro seconds to seconds */
 // sleep for 10 minutes
-#define TIME_TO_SLEEP 60 
+#define TIME_TO_SLEEP 600
 // #define TIME_TO_SLEEP 5
 #define MAX_WAIT_FOR_WIFI 20000
 
@@ -23,6 +23,8 @@ String getPlantUrl(char* plantId);
 void handlePlant(PlantConfig plantConfig);
 void turnOffPump(int pumpPin);
 void gotoSleep();
+void runPlantReadings();
+Ticker tkSec;
 
 String getPlantUrl(const char* plantId) {
   return String(("https://plant-watering-two.vercel.app/api/id/" +
@@ -33,15 +35,11 @@ String getPlantUrl(const char* plantId) {
 void calibrateSensor(int sensorPin) {
   delay(100);
   Log::debug("Calibrating sensor for pin " + String(sensorPin));
-  delay(1000);
+  delay(100);
   int sensorValue1 = analogRead(sensorPin);
   Log::debug("Sensor value for pin " + String(sensorPin) + " is " +
              sensorValue1);
-  delay(5000);
-  int sensorValue2 = analogRead(sensorPin);
-  Log::debug("Sensor value for pin " + String(sensorPin) + " is " +
-             sensorValue2);
-  delay(5000);
+  delay(100);
 }
 
 void setup() {
@@ -56,17 +54,19 @@ void setup() {
   digitalWrite(LED_BUILTIN, HIGH);
   // calibate sensor
   if (false) {
-    for (PlantConfig plantConfig : plantConfigs) {
-      calibrateSensor(plantConfig.sensorPin);
+    while (true) {
+      for (PlantConfig plantConfig : plantConfigs) {
+        calibrateSensor(plantConfig.sensorPin);
+      }
     }
   } else {
     // normal mode
-    esp_wifi_start();
-    esp_wifi_connect();
-    WiFi.persistent(false);
+    // esp_wifi_start();
+    // esp_wifi_connect();
+    // WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
     WiFi.begin(Config::ssid, Config::password);
-    WiFi.reconnect();
+    // WiFi.reconnect();
     Log::debug("Connecting");
     // set pump to off to low
     for (PlantConfig plantConfig : plantConfigs) {
@@ -82,23 +82,37 @@ void setup() {
 
     Log::debug("Connected to the WiFi network");
     Log::debug("Local IP: \n" + WiFi.localIP().toString());
+    Log::debug("Run once and then every " + String(TIME_TO_SLEEP) + " seconds");
+    runPlantReadings();
+    tkSec.attach(TIME_TO_SLEEP, runPlantReadings);
 
-    for (PlantConfig plantConfig : plantConfigs) {
-      // delay to not overwhelm server
-      delay(500);
-      try {
-        handlePlant(plantConfig);
-      } catch (const char* msg) {
-        Log::debug(msg);
-        continue;
-      }
+    // no deep sleep
+    // gotoSleep();
+  }
+}
+void runPlantReadings() {
+  if (WiFi.status() != WL_CONNECTED) {
+    WiFi.reconnect();
+    while (WiFi.status() != WL_CONNECTED) {
+      Log::debug("Wifi not connected yet... \n" + millis());
+      delay(100);
     }
-    gotoSleep();
+  }
+  for (PlantConfig plantConfig : plantConfigs) {
+    // delay to not overwhelm server
+    delay(500);
+    try {
+      handlePlant(plantConfig);
+    } catch (const char* msg) {
+      Log::debug(msg);
+      continue;
+    }
   }
 }
 
 void loop() {}
 
+// TODO: Delete, not used in this branch
 void gotoSleep() {
   Log::debug("Setup ESP32 to sleep for every " + String(TIME_TO_SLEEP) +
              " Seconds");
