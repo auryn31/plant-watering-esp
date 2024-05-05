@@ -13,6 +13,7 @@ class Plant {
   int water_today;
   int last_humidity;
   String last_watering_value_pushed;
+  bool watering_allowed;
 
   static Plant fetchPlant(String plantUrl);
   static void sendData(const String& url, int humidity, int lastWateringInMl);

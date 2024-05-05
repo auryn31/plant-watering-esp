@@ -36,6 +36,7 @@ Plant Plant::fetchPlant(String plantUrl) {
             obj["last_watering_value_pushed"].as<String>();
         plant.water_today = obj["water_today"];
         plant.last_humidity = obj["last_humidity"];
+        plant.watering_allowed = obj["watering_allowed"];
 
         plant.printDetails();
         return plant;

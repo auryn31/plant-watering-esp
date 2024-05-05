@@ -14,7 +14,8 @@
 // sleep for 10 minutes
 #define TIME_TO_SLEEP 600
 // #define TIME_TO_SLEEP 5
-#define MAX_WAIT_FOR_WIFI 20000
+// wait max 30 seconds for wifi
+#define MAX_WAIT_FOR_WIFI 30000
 
 void sendData(const String& url, int humidity, int lastWateringInMl);
 void readDataAndSentToServer(String url);
@@ -24,7 +25,12 @@ void handlePlant(PlantConfig plantConfig);
 void turnOffPump(int pumpPin);
 void gotoSleep();
 void runPlantReadings();
+void checkWifiAndInternetAndRestartIfBroken();
 Ticker tkSec;
+
+enum Mode { PLANT, CALIBRATE };
+
+const Mode mode = PLANT;
 
 String getPlantUrl(const char* plantId) {
   return String(("https://plant-watering-two.vercel.app/api/id/" +
@@ -32,14 +38,43 @@ String getPlantUrl(const char* plantId) {
                     .c_str());
 }
 
-void calibrateSensor(int sensorPin) {
-  delay(100);
-  Log::debug("Calibrating sensor for pin " + String(sensorPin));
-  delay(100);
-  int sensorValue1 = analogRead(sensorPin);
-  Log::debug("Sensor value for pin " + String(sensorPin) + " is " +
-             sensorValue1);
-  delay(100);
+void calibrateSensor(PlantConfig plantConfig) {
+  int sensorValue1 = analogRead(plantConfig.sensorPin);
+  Log::debug("Dry calibration value " + String(plantConfig.dryValue));
+  Log::debug("Wet calibration value " + String(plantConfig.wetValue));
+  int result = readHumidity(plantConfig.sensorPin, plantConfig.dryValue,
+                            plantConfig.wetValue);
+  Log::debug("Result is " + String(result));
+  delay(200);
+}
+
+void checkWifiAndInternetAndRestartIfBroken() {
+  Log::debug("Checking if wifi is connected...");
+  unsigned long start = millis();
+  if (WiFi.status() != WL_CONNECTED) {
+    WiFi.reconnect();
+    while (WiFi.status() != WL_CONNECTED) {
+      Log::debug("Wifi not connected yet... \n" + millis());
+      delay(100);
+      if ((millis() - start) > MAX_WAIT_FOR_WIFI) {
+        Log::debug("Wifi not connecting, restart ESP \n" + millis());
+        ESP.restart();
+      }
+    }
+  }
+  Log::debug("Ping google.com to check internet...");
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin("http://www.google.com");
+    int httpCode = http.GET();
+    if (httpCode > 0) {
+      Log::debug("Internet is working fine");
+    } else {
+      Log::debug("Internet is not working fine, restart ESP");
+      ESP.restart();
+    }
+    http.end();
+  }
 }
 
 void setup() {
@@ -47,34 +82,29 @@ void setup() {
     delay(1000);
     Serial.begin(9600);
     delay(100);
-    // Log::initDisplay();
     while (!Serial);
   }
 
-  digitalWrite(LED_BUILTIN, HIGH);
-  // calibate sensor
-  if (false) {
+  // digitalWrite(LED_BUILTIN, HIGH);
+  if (mode == CALIBRATE) {
+    Log::debug("Calibrating sensors...");
     while (true) {
       for (PlantConfig plantConfig : plantConfigs) {
-        calibrateSensor(plantConfig.sensorPin);
+        calibrateSensor(plantConfig);
       }
     }
-  } else {
-    // normal mode
-    // esp_wifi_start();
-    // esp_wifi_connect();
-    // WiFi.persistent(false);
+  }
+
+  if (mode == PLANT) {
     WiFi.mode(WIFI_STA);
     WiFi.begin(Config::ssid, Config::password);
-    // WiFi.reconnect();
-    Log::debug("Connecting");
-    // set pump to off to low
+
+    Log::debug("Turning off all pumps...");
     for (PlantConfig plantConfig : plantConfigs) {
       turnOffPump(plantConfig.pumpPin);
     }
 
-    unsigned long start = millis();
-    // && (millis() - start) < MAX_WAIT_FOR_WIFI
+    Log::debug("Connecting to WiFi...");
     while (WiFi.status() != WL_CONNECTED) {
       Log::debug("Wifi not connected yet... \n" + millis());
       delay(100);
@@ -85,19 +115,10 @@ void setup() {
     Log::debug("Run once and then every " + String(TIME_TO_SLEEP) + " seconds");
     runPlantReadings();
     tkSec.attach(TIME_TO_SLEEP, runPlantReadings);
-
-    // no deep sleep
-    // gotoSleep();
   }
 }
 void runPlantReadings() {
-  if (WiFi.status() != WL_CONNECTED) {
-    WiFi.reconnect();
-    while (WiFi.status() != WL_CONNECTED) {
-      Log::debug("Wifi not connected yet... \n" + millis());
-      delay(100);
-    }
-  }
+  checkWifiAndInternetAndRestartIfBroken();
   for (PlantConfig plantConfig : plantConfigs) {
     // delay to not overwhelm server
     delay(500);
@@ -112,26 +133,6 @@ void runPlantReadings() {
 
 void loop() {}
 
-// TODO: Delete, not used in this branch
-void gotoSleep() {
-  Log::debug("Setup ESP32 to sleep for every " + String(TIME_TO_SLEEP) +
-             " Seconds");
-  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
-
-  Log::debug("Going to sleep now");
-  delay(500);
-  // seems like an issue with esp32 c3 if not connected to usb
-  if (DEBUG_ENABLED) {
-    Serial.flush();
-  }
-  esp_wifi_disconnect();
-  WiFi.disconnect();
-  // esp_wifi_stop();
-  delay(500);
-  digitalWrite(LED_BUILTIN, LOW);
-  esp_deep_sleep_start();
-}
-
 void turnOffPump(int pumpPin) {
   pinMode(pumpPin, OUTPUT);
   digitalWrite(pumpPin, LOW);
@@ -145,8 +146,7 @@ void handlePlant(PlantConfig plantConfig) {
   Log::debug("Humidity for plant " + String(plantConfig.plantId) + " is " +
              String(humidity));
   if (plant.desired_humidity > humidity &&
-      plant.water_today < plant.max_ml_per_day &&
-      plantConfig.should_be_watered) {
+      plant.water_today < plant.max_ml_per_day && plant.watering_allowed) {
     // first send data to server to prevent watering without logging
     Plant::sendData(plantUrl, humidity, plant.ml_per_watering);
     Log::debug("Watering start...");
